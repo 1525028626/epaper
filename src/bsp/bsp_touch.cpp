@@ -7,6 +7,9 @@
 #include <Wire.h> // 引入 Wire 以便直接配置灵敏度
 
 
+/**
+ * @brief 初始化触摸屏 (I2C)
+ */
 sys_status_t bsp_touch_init(void) {
     // 复位触摸芯片
     pinMode(PIN_TOUCH_RST, OUTPUT);
@@ -22,6 +25,11 @@ sys_status_t bsp_touch_init(void) {
     return SYS_OK;
 }
 
+/**
+ * @brief 读取触摸点坐标
+ * @param point 输出参数，存储坐标和状态
+ * @return true 读取成功且有触摸, false 失败或无触摸
+ */
 bool bsp_touch_read(touch_point_t *point) {
     if (point == NULL) return false;
 

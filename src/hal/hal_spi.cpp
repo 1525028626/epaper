@@ -30,26 +30,24 @@ sys_status_t hal_spi_write_byte(uint8_t data) {
     if (!g_spi_inited) return SYS_ERR_INVALID_ARG;
 
     // 循环发送 8 位 (MSB First)
+    // 1. CLK 拉低 (准备数据)
+    digitalWrite(PIN_SPI_SCK, LOW);
     for (uint8_t i = 0; i < 8; i++) {
-        // 1. CLK 拉低 (准备数据)
-        digitalWrite(PIN_SPI_SCK, LOW);
-        
+ 
         // 2. 设置 MOSI 电平
         if (data & 0x80) {
             digitalWrite(PIN_SPI_MOSI, HIGH);
         } else {
             digitalWrite(PIN_SPI_MOSI, LOW);
         }
-        
+        digitalWrite(PIN_SPI_SCK, HIGH);
+        digitalWrite(PIN_SPI_SCK, LOW);
         // 3. 移位
         data = (data << 1);
         
-        // 4. CLK 拉高 (屏幕在上升沿采样数据)
-        digitalWrite(PIN_SPI_SCK, HIGH);
+
     }
-    
-    // 结束后拉低 CLK
-    digitalWrite(PIN_SPI_SCK, LOW);
+
 
     return SYS_OK;
 }

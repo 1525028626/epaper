@@ -1,104 +1,126 @@
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <lvgl.h>
+
 #include "gui_port/gui_port.h"
+#include "system/SysEvent.h"
 #include "system/PageManager.h"
-#include "system/AppBase.h"
-#include "ui/ui.h" // 引入 SquareLine 生成的 UI 头文件
+#include "system/System.h"
 
-// =========================================================
-// 全局变量
-// =========================================================
+// 引入首发 App
+#include "app/app_home.h"
 
-// 定义全局 GUI 任务句柄
-// 必须定义它，因为 gui_port.cpp 中使用了 extern TaskHandle_t hGuiTask;
-// 触摸扫描任务会通过这个句柄唤醒 GUI 线程
+// === 全局变量 ===
+QueueHandle_t g_gui_queue = NULL;
+QueueHandle_t g_worker_queue = NULL;
 TaskHandle_t hGuiTask = NULL;
 
-// =========================================================
-// App: Main (SquareLine UI)
-// =========================================================
-class App_Main : public AppBase {
-public:
-    void onStart() override {
-        Serial.println("App_Main: Starting UI...");
-        // 初始化 SquareLine 生成的界面
-        ui_init();
-    }
-
-    void onStop() override {
-        Serial.println("App_Main: Stopping...");
-        // 清理 ui.c 中创建的所有全局屏幕对象
-        // 必须手动删除，否则下次加载时会重复创建导致内存泄漏
-        if (ui_HomePage) lv_obj_del(ui_HomePage);
-        if (ui_CalendarPage) lv_obj_del(ui_CalendarPage);
-        if (ui_WeatherPage) lv_obj_del(ui_WeatherPage);
-        if (ui_SettingPage) lv_obj_del(ui_SettingPage);
-        if (ui_AppPage) lv_obj_del(ui_AppPage);
-
-        ui_HomePage = NULL;
-        ui_CalendarPage = NULL;
-        ui_WeatherPage = NULL;
-        ui_SettingPage = NULL;
-        ui_AppPage = NULL;
-    }
-};
-
-// =========================================================
-// GUI 线程 (运行 LVGL 核心逻辑)
-// =========================================================
+// ==========================================
+// Task 1: GUI 线程 (Core 1)
+// 负责 UI 渲染、LVGL 定时器、事件分发
+// ==========================================
 void Task_GUI(void *pvParameters) {
-    Serial.println("GUI Task Started.");
+    sys_event_t event;
 
-    // 加载主页面 App
-    PageManager::loadApp(new App_Main());
+    // 启动第一个 App
+    PageManager::loadApp(new App_Home());
 
     while (1) {
-        // 1. 处理 LVGL 定时器 (UI 刷新、动画、事件分发)
-        //    这是 LVGL 的心脏，必须定期调用
+        // 1. LVGL 核心
         lv_timer_handler();
 
-        // 2. 智能延时 (配合 gui_port.cpp 中的触摸唤醒)
-        //    - 如果有触摸事件，Task_Touch_Poller 会调用 xTaskNotifyGive(hGuiTask)
-        //      此时 ulTaskNotifyTake 会立即返回，让 UI 瞬间响应。
-        //    - 如果没有事件，这里最多等待 10ms，保证 lv_timer_handler 至少每 10ms 运行一次
-        //      (用于处理动画或长按等定时事件)
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10)); 
+        // 2. 处理后台消息 (Worker -> GUI)
+        if (xQueueReceive(g_gui_queue, &event, 0) == pdTRUE) {
+            PageManager::handleEvent(&event);
+        }
+
+        // 3. 触摸唤醒 (配合 gui_port 的触摸扫描)
+        // 没触摸睡 10ms，有触摸立马醒
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
     }
 }
 
-// =========================================================
-// Arduino Setup
-// =========================================================
-void setup() {
-    Serial.begin(115200);
-    
-    Serial.println("\n=== System Booting ===");
+// ==========================================
+// Task 2: Worker 线程 (Core 0)
+// 负责后台业务逻辑、网络请求、系统管理
+// ==========================================
+void Task_Worker(void *pvParameters) {
+    sys_event_t cmd;
 
-    gui_port_init();
+    // 可以在这里初始化 WiFi (不卡 UI)
+    // WiFi.begin("SSID", "PASS");
 
-    // 2. 创建 GUI 主任务
-    //    优先级设为 2 (低于触摸扫描任务 3，高于 IDLE)
-    //    分配 8KB 栈空间 (LVGL 需要较大栈，如果崩溃请尝试增大)
-    //    运行在 Core 1 (与 Arduino loop 同核，但独立任务)
-    xTaskCreatePinnedToCore(
-        Task_GUI,   
-        "GUI_Task", 
-        8192,       
-        NULL,       
-        2,          
-        &hGuiTask,  
-        1           
-    );
+    while (1) {
+        // 1. 让当前 App 跑后台逻辑 (如果有)
+        PageManager::loop();
+
+        // 2. 处理 GUI 指令 (GUI -> Worker)
+        // 等待 5ms，避免死循环空转
+        if (xQueueReceive(g_worker_queue, &cmd, 5) == pdTRUE) {
+            switch (cmd.type) {
+                case CMD_FETCH_WEATHER: {
+                    Serial.println("[Worker] Fetching Weather...");
+                    // 模拟网络耗时
+                    vTaskDelay(pdMS_TO_TICKS(1500)); 
+                    
+                    // 拿到数据，发回给 UI
+                    // 这里模拟 25 度
+                    System::sendToUI(EVT_DATA_WEATHER, 25);
+                    break;
+                }
+                
+                case CMD_SYSTEM_REBOOT:
+                    ESP.restart();
+                    break;
+                    
+                default: break;
+            }
+        }
+        
+        // 3. 周期性任务 (例如每分钟更新时间)
+        static uint32_t last_tick = 0;
+        if (millis() - last_tick > 60000) {
+            last_tick = millis();
+            // System::sendToUI(EVT_TIME_UPDATED);
+        }
+    }
 }
 
-// =========================================================
-// Arduino Loop
-// =========================================================
-void loop() {
-    // 主循环可以处理非 GUI 的后台逻辑 (例如 WiFi 重连、传感器读取)
-    // 或者直接调用 PageManager 的后台循环
-    PageManager::loop();
+// ==========================================
+// Setup
+// 系统入口：初始化硬件、创建队列、启动任务
+// ==========================================
+void setup() {
+    Serial.begin(115200);
+    delay(500);
+    Serial.println("\n=== System Booting ===");
     
-    // 简单的延时，避免看门狗触发
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // 检查 PSRAM
+    if (psramFound()) {
+        Serial.printf("PSRAM: %d KB available\n", ESP.getPsramSize() / 1024);
+    } else {
+        Serial.println("Warning: PSRAM not found! Check build_flags.");
+    }
+
+    // 1. 创建双向通信队列
+    g_gui_queue = xQueueCreate(20, sizeof(sys_event_t));
+    g_worker_queue = xQueueCreate(20, sizeof(sys_event_t));
+
+    // 2. 初始化底层硬件 (屏幕、触摸、LVGL)
+    gui_port_init();
+
+    // 3. 创建双核任务
+    // GUI 跑 Core 1 (高优)
+    xTaskCreatePinnedToCore(Task_GUI, "GUI", 8192, NULL, 2, &hGuiTask, 1);
+    
+    // Worker 跑 Core 0 (低优)
+    xTaskCreatePinnedToCore(Task_Worker, "Worker", 8192, NULL, 1, NULL, 0);
+    
+    Serial.println(">>> System Started.");
+}
+
+void loop() {
+    vTaskDelete(NULL); // 销毁 Arduino 默认任务
 }

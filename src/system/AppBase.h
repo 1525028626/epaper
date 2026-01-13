@@ -1,23 +1,28 @@
 #ifndef APP_BASE_H
 #define APP_BASE_H
 
+#include "SysEvent.h"
+#include "System.h"
 #include <lvgl.h>
-#include "system/SysEvent.h"
 
+/**
+ * @brief App 基类 (接口)
+ * 所有具体的页面/应用都应继承此类，并实现生命周期方法
+ */
 class AppBase {
 public:
     virtual ~AppBase() {}
 
-    // [生命周期] App 被打开时调用 (初始化 UI，注册事件)
+    // [生命周期] App 启动: 初始化 UI, 绑定事件
     virtual void onStart() = 0;
 
-    // [生命周期] App 被关闭时调用 (销毁 UI，释放内存)
+    // [生命周期] App 退出: 销毁 UI, 释放内存
     virtual void onStop() = 0;
 
-    // [事件] 当收到事件队列消息时调用
+    // [事件] 处理来自后台的消息
     virtual void onEvent(sys_event_t* event) {}
 
-    // [后台] 如果 App 需要在 Worker 线程跑逻辑 (可选)
+    // [后台] 轮询逻辑 (可选)
     virtual void onRunningLoop() {} 
 };
 
