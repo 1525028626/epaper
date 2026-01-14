@@ -1,3 +1,8 @@
+/**
+ * @file types.h
+ * @brief 通用类型定义文件
+ * @details 定义了项目全局使用的枚举、结构体、宏和错误码。
+ */
 #ifndef COMMON_TYPES_H
 #define COMMON_TYPES_H
 
@@ -10,7 +15,7 @@ extern "C" {
 #include <stddef.h>  // 提供 size_t, NULL
 
 /* ==================================================================
- * 2. 常用宏定义 (Common Macros)
+ * 1. 常用宏定义 (Common Macros)
  * ================================================================== */
 #ifndef BIT
 #define BIT(x) (1UL << (x))
@@ -28,20 +33,22 @@ extern "C" {
 #define UNUSED(x) (void)(x) 
 #endif
 
-
+/* ==================================================================
+ * 2. 系统状态码 (System Status Codes)
+ * ================================================================== */
 typedef enum {
-    SYS_OK              = 0,    // 操作成功
-    SYS_FAIL            = -1,   // 通用错误
-    SYS_ERR_TIMEOUT     = -2,   // 超时
-    SYS_ERR_BUSY        = -3,   // 资源忙
-    SYS_ERR_INVALID_ARG = -4,   // 参数无效 (空指针或越界)
-    SYS_ERR_NO_MEM      = -5,   // 内存不足
-    SYS_ERR_NOT_FOUND   = -6,   // 资源未找到
-    SYS_ERR_NOT_SUPPORT = -7    // 功能不支持
+    SYS_OK              = 0,    ///< 操作成功
+    SYS_FAIL            = -1,   ///< 通用错误
+    SYS_ERR_TIMEOUT     = -2,   ///< 超时
+    SYS_ERR_BUSY        = -3,   ///< 资源忙
+    SYS_ERR_INVALID_ARG = -4,   ///< 参数无效 (空指针或越界)
+    SYS_ERR_NO_MEM      = -5,   ///< 内存不足
+    SYS_ERR_NOT_FOUND   = -6,   ///< 资源未找到
+    SYS_ERR_NOT_SUPPORT = -7    ///< 功能不支持
 } sys_status_t;
 
 /* ==================================================================
- * 4. 系统事件枚举 (System Events)
+ * 3. 系统事件枚举 (System Events)
  * 用于 FreeRTOS 队列或事件组，解耦网络和 UI。
  * ================================================================== */
 typedef enum {
@@ -50,8 +57,8 @@ typedef enum {
     // 网络相关
     EVENT_WIFI_CONNECTED,
     EVENT_WIFI_DISCONNECTED,
-    EVENT_NTP_SYNCED,      // 时间同步完成
-    EVENT_WEATHER_UPDATED, // 天气数据更新
+    EVENT_NTP_SYNCED,      ///< 时间同步完成
+    EVENT_WEATHER_UPDATED, ///< 天气数据更新
     
     // 电源/系统相关
     EVENT_LOW_BATTERY,
@@ -62,20 +69,25 @@ typedef enum {
 } sys_event_type_t;
 
 /* ==================================================================
- * 5. 通用数据结构 (Common Structs)
+ * 4. 通用数据结构 (Common Structs)
  * ================================================================== */
 
-// 简单的 2D 坐标 (用于触摸或绘图)
+/**
+ * @brief 简单的 2D 坐标
+ */
 typedef struct {
     int16_t x;
     int16_t y;
 } point_t;
 
-// 系统事件消息体 (用于 xQueueSend)
+/**
+ * @brief 系统事件消息体
+ * @details 用于 xQueueSend 发送的消息结构
+ */
 typedef struct {
-    sys_event_type_t type;
-    void *payload;         // 可选的数据指针 (注意内存生命周期)
-    uint32_t timestamp;    // 事件发生的时间戳
+    sys_event_type_t type; ///< 事件类型
+    void *payload;         ///< 可选的数据指针 (注意: 接收方需负责释放内存，或约定使用静态内存)
+    uint32_t timestamp;    ///< 事件发生的时间戳 (millis)
 } sys_event_msg_t;
 
 /* ==================================================================

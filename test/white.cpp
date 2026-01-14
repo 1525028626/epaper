@@ -11,3 +11,5 @@ void setup() {
 void loop() {
 }
     
+//  g_touch_x = EPD_HEIGHT - 1 - tp.y;
+//            g_touch_y = tp.x;
